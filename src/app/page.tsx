@@ -567,10 +567,10 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Google Drive Panel */}
+        {/* Google Drive Panel - Split view: folder tree + file list */}
         {showDrivePanel && driveConnected && (
           <div className="border-b" style={{ borderColor: "var(--border)", background: "var(--surface)" }} data-drive>
-            <div className="max-w-3xl mx-auto p-3">
+            <div className="max-w-4xl mx-auto p-3">
               {/* Drive header */}
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
@@ -578,8 +578,33 @@ export default function Home() {
                     <path d="M12 2L2 19.5h20L12 2z" /><path d="M7.5 12.5L12 2l4.5 10.5" /><path d="M2 19.5l4.5-7h11l4.5 7" />
                   </svg>
                   <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>Google Drive</span>
+                  {/* Breadcrumb inline */}
+                  {drivePath.length > 1 && (
+                    <div className="flex items-center gap-1 ml-2">
+                      {drivePath.map((p, i) => (
+                        <span key={i} className="flex items-center gap-1">
+                          {i > 0 && <span className="text-xs" style={{ color: "var(--muted)" }}>&rsaquo;</span>}
+                          <button onClick={() => navigateDriveBreadcrumb(i)} className="text-xs hover:underline" style={{ color: i === drivePath.length - 1 ? "var(--accent)" : "var(--muted)" }}>{p.name}</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* Search */}
+                  <div className="flex gap-1">
+                    <input
+                      value={driveSearch}
+                      onChange={(e) => setDriveSearch(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") searchDrive(driveSearch); }}
+                      placeholder="Search all files..."
+                      className="px-2.5 py-1 rounded-lg border text-xs focus:outline-none w-48"
+                      style={{ background: "var(--background)", borderColor: "var(--border)", color: "var(--foreground)" }}
+                    />
+                    <button onClick={() => searchDrive(driveSearch)} className="px-2.5 py-1 rounded-lg text-xs font-medium text-white" style={{ background: "var(--accent)" }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                    </button>
+                  </div>
                   <button onClick={disconnectDrive} className="text-xs px-2 py-1 rounded hover:bg-red-500/20" style={{ color: "var(--error)" }}>Disconnect</button>
                   <button onClick={() => setShowDrivePanel(false)} className="p-1 rounded hover:bg-white/5" style={{ color: "var(--muted)" }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
@@ -587,53 +612,60 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Search */}
-              <div className="flex gap-2 mb-2">
-                <input
-                  value={driveSearch}
-                  onChange={(e) => setDriveSearch(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") searchDrive(driveSearch); }}
-                  placeholder="Search files..."
-                  className="flex-1 px-3 py-1.5 rounded-lg border text-xs focus:outline-none"
-                  style={{ background: "var(--background)", borderColor: "var(--border)", color: "var(--foreground)" }}
-                />
-                <button onClick={() => searchDrive(driveSearch)} className="px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{ background: "var(--accent)" }}>Search</button>
-              </div>
-
-              {/* Breadcrumb */}
-              <div className="flex items-center gap-1 mb-2 flex-wrap">
-                {drivePath.map((p, i) => (
-                  <span key={i} className="flex items-center gap-1">
-                    {i > 0 && <span className="text-xs" style={{ color: "var(--muted)" }}>/</span>}
-                    <button onClick={() => navigateDriveBreadcrumb(i)} className="text-xs hover:underline" style={{ color: i === drivePath.length - 1 ? "var(--accent)" : "var(--muted)" }}>{p.name}</button>
-                  </span>
-                ))}
-              </div>
-
-              {/* File list */}
-              <div className="max-h-48 overflow-y-auto rounded-lg border" style={{ borderColor: "var(--border)", background: "var(--background)" }}>
-                {driveLoading ? (
-                  <div className="p-4 text-center text-xs" style={{ color: "var(--muted)" }}>Loading...</div>
-                ) : (
-                  <>
-                    {driveFolders.map((folder) => (
-                      <button key={folder.id} onClick={() => browseDriveFolder(folder.id, folder.name)} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-all border-b" style={{ borderColor: "var(--border)" }}>
-                        <span className="text-sm">📁</span>
-                        <span className="text-xs flex-1 truncate" style={{ color: "var(--foreground)" }}>{folder.name}</span>
+              {/* Split layout: Folder tree | File list */}
+              <div className="flex gap-2 rounded-lg border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--background)", height: 280 }}>
+                {/* Left: Folder tree */}
+                <div className="w-52 flex-shrink-0 border-r overflow-y-auto" style={{ borderColor: "var(--border)" }}>
+                  {/* Root */}
+                  <button onClick={() => { setDrivePath([{ id: null, name: "My Drive" }]); browseDriveFolder(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-all" style={{ background: drivePath.length === 1 ? "var(--accent-subtle)" : "transparent" }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: drivePath.length === 1 ? "var(--accent)" : "var(--muted)" }}><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                    <span className="text-xs font-medium" style={{ color: drivePath.length === 1 ? "var(--accent)" : "var(--foreground)" }}>My Drive</span>
+                  </button>
+                  {/* Folder list */}
+                  {driveFolders.map((folder) => {
+                    const isActive = drivePath[drivePath.length - 1]?.id === folder.id;
+                    return (
+                      <button key={folder.id} onClick={() => browseDriveFolder(folder.id, folder.name)} className="w-full flex items-center gap-2 px-3 py-1.5 pl-5 text-left hover:bg-white/5 transition-all" style={{ background: isActive ? "var(--accent-subtle)" : "transparent" }}>
+                        <span className="text-xs">📁</span>
+                        <span className="text-xs truncate" style={{ color: isActive ? "var(--accent)" : "var(--foreground)" }}>{folder.name}</span>
                       </button>
-                    ))}
-                    {driveFiles.map((file) => (
-                      <button key={file.id} onClick={() => attachDriveFile(file)} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-all border-b" style={{ borderColor: "var(--border)" }}>
-                        <span className="text-sm">{file.mimeType?.includes("image") ? "🖼️" : file.mimeType?.includes("pdf") ? "📄" : file.mimeType?.includes("spreadsheet") || file.mimeType?.includes("excel") ? "📊" : "📎"}</span>
-                        <span className="text-xs flex-1 truncate" style={{ color: "var(--foreground)" }}>{file.name}</span>
-                        <span className="text-xs flex-shrink-0" style={{ color: "var(--muted)" }}>{file.size ? (parseInt(file.size) / 1024 > 1024 ? (parseInt(file.size) / 1048576).toFixed(1) + " MB" : (parseInt(file.size) / 1024).toFixed(0) + " KB") : ""}</span>
-                      </button>
-                    ))}
-                    {driveFolders.length === 0 && driveFiles.length === 0 && (
-                      <div className="p-4 text-center text-xs" style={{ color: "var(--muted)" }}>No files found</div>
-                    )}
-                  </>
-                )}
+                    );
+                  })}
+                  {driveFolders.length === 0 && !driveLoading && (
+                    <div className="px-3 py-2 text-xs" style={{ color: "var(--muted)" }}>No subfolders</div>
+                  )}
+                </div>
+
+                {/* Right: File list */}
+                <div className="flex-1 overflow-y-auto">
+                  {driveLoading ? (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-xs" style={{ color: "var(--muted)" }}>Loading...</div>
+                    </div>
+                  ) : driveFiles.length === 0 ? (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center">
+                        <div className="text-xs" style={{ color: "var(--muted)" }}>No files in this folder</div>
+                        <div className="text-xs mt-1" style={{ color: "var(--muted)" }}>Try searching or browse a different folder</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Column headers */}
+                      <div className="flex items-center gap-2 px-3 py-1.5 border-b sticky top-0" style={{ borderColor: "var(--border)", background: "var(--background)" }}>
+                        <span className="text-xs font-medium flex-1" style={{ color: "var(--muted)" }}>Name</span>
+                        <span className="text-xs font-medium w-16 text-right" style={{ color: "var(--muted)" }}>Size</span>
+                      </div>
+                      {driveFiles.map((file) => (
+                        <button key={file.id} onClick={() => attachDriveFile(file)} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-all border-b" style={{ borderColor: "var(--border)" }}>
+                          <span className="text-sm flex-shrink-0">{file.mimeType?.includes("image") ? "🖼️" : file.mimeType?.includes("pdf") ? "📄" : file.mimeType?.includes("spreadsheet") || file.mimeType?.includes("excel") ? "📊" : file.mimeType?.includes("document") || file.mimeType?.includes("word") ? "📝" : file.mimeType?.includes("presentation") ? "📊" : "📎"}</span>
+                          <span className="text-xs flex-1 truncate" style={{ color: "var(--foreground)" }}>{file.name}</span>
+                          <span className="text-xs w-16 text-right flex-shrink-0" style={{ color: "var(--muted)" }}>{file.size ? (parseInt(file.size) / 1024 > 1024 ? (parseInt(file.size) / 1048576).toFixed(1) + " MB" : (parseInt(file.size) / 1024).toFixed(0) + " KB") : "—"}</span>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
