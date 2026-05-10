@@ -41,7 +41,8 @@ export default function Home() {
   const [isListening, setIsListening] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
   const router = useRouter();
 
   // Current scope: "chat" or skill id
@@ -219,7 +220,9 @@ export default function Home() {
       setIsListening(false);
       return;
     }
-    const SpeechRecognition = (window as unknown as { SpeechRecognition?: typeof window.SpeechRecognition; webkitSpeechRecognition?: typeof window.SpeechRecognition }).SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: typeof window.SpeechRecognition }).webkitSpeechRecognition;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRecognition = SpeechRecognitionAPI as SpeechRecognitionConstructor | undefined;
     if (!SpeechRecognition) { alert("Voice input is not supported in this browser."); return; }
     const recognition = new SpeechRecognition();
     recognition.lang = "en-US";
