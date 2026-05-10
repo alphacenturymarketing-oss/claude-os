@@ -7,6 +7,8 @@ import ReactMarkdown from "react-markdown";
 type Message = { role: "user" | "assistant"; content: string };
 type ChatSession = { id: string; title: string; messages: Message[]; scope: string; updatedAt: number };
 type Memory = { key: string; value: string };
+type DriveFile = { id: string; name: string; mimeType: string; thumbnailLink?: string; webViewLink?: string; size?: string; modifiedTime?: string };
+type DriveFolder = { id: string; name: string; modifiedTime?: string };
 
 const SKILLS = [
   { id: "post-all-portals", name: "Post to All Portals", icon: "🏠", description: "Post listing on iProperty, EdgeProp & Propmall" },
@@ -39,6 +41,14 @@ export default function Home() {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [showMemory, setShowMemory] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [extensionInstalled, setExtensionInstalled] = useState(false);
+  const [driveConnected, setDriveConnected] = useState(false);
+  const [showDrivePanel, setShowDrivePanel] = useState(false);
+  const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
+  const [driveFolders, setDriveFolders] = useState<DriveFolder[]>([]);
+  const [drivePath, setDrivePath] = useState<{ id: string | null; name: string }[]>([{ id: null, name: "My Drive" }]);
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveSearch, setDriveSearch] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -58,6 +68,100 @@ export default function Home() {
       }
     });
   }, [router]);
+
+  // Extension bridge: send messages to content script and get responses
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function extSend(action: string, payload?: any): Promise<any> {
+    return new Promise((resolve) => {
+      const id = crypto.randomUUID();
+      function onMsg(event: MessageEvent) {
+        if (event.data?.source === "claude-os-extension" && event.data.id === id) {
+          window.removeEventListener("message", onMsg);
+          resolve(event.data.result);
+        }
+      }
+      window.addEventListener("message", onMsg);
+      window.postMessage({ source: "claude-os-app", id, action, payload }, "*");
+      // Timeout after 30s
+      setTimeout(() => { window.removeEventListener("message", onMsg); resolve({ error: "Timeout" }); }, 30000);
+    });
+  }
+
+  // Detect extension on mount
+  useEffect(() => {
+    function onExtReady(event: MessageEvent) {
+      if (event.data?.source === "claude-os-extension" && event.data.type === "READY") {
+        setExtensionInstalled(true);
+        // Check drive status
+        extSend("GET_STATUS").then((res) => {
+          if (res?.connected) setDriveConnected(true);
+        });
+      }
+    }
+    window.addEventListener("message", onExtReady);
+    // Also check if extension marker exists (already loaded)
+    if (document.getElementById("claude-os-extension-installed")) {
+      setExtensionInstalled(true);
+      extSend("GET_STATUS").then((res) => {
+        if (res?.connected) setDriveConnected(true);
+      });
+    }
+    return () => window.removeEventListener("message", onExtReady);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function connectDrive() {
+    const res = await extSend("CONNECT_DRIVE");
+    if (res?.success) setDriveConnected(true);
+    else alert("Failed to connect: " + (res?.error || "Unknown error"));
+  }
+
+  async function disconnectDrive() {
+    await extSend("DISCONNECT_DRIVE");
+    setDriveConnected(false);
+    setDriveFiles([]);
+    setDriveFolders([]);
+    setShowDrivePanel(false);
+  }
+
+  async function browseDriveFolder(folderId: string | null, folderName?: string) {
+    setDriveLoading(true);
+    if (folderName !== undefined) {
+      if (folderId === null) {
+        setDrivePath([{ id: null, name: "My Drive" }]);
+      } else {
+        setDrivePath((prev) => [...prev, { id: folderId, name: folderName }]);
+      }
+    }
+    const [filesRes, foldersRes] = await Promise.all([
+      extSend("DRIVE_LIST_FILES", { folderId }),
+      extSend("DRIVE_LIST_FOLDERS", { parentId: folderId }),
+    ]);
+    setDriveFiles(filesRes?.files || []);
+    setDriveFolders(foldersRes?.folders || []);
+    setDriveLoading(false);
+  }
+
+  async function searchDrive(query: string) {
+    if (!query.trim()) { browseDriveFolder(drivePath[drivePath.length - 1].id); return; }
+    setDriveLoading(true);
+    const res = await extSend("DRIVE_LIST_FILES", { query });
+    setDriveFiles(res?.files || []);
+    setDriveFolders([]);
+    setDriveLoading(false);
+  }
+
+  function navigateDriveBreadcrumb(index: number) {
+    const target = drivePath[index];
+    setDrivePath((prev) => prev.slice(0, index + 1));
+    browseDriveFolder(target.id);
+  }
+
+  function attachDriveFile(file: DriveFile) {
+    const mention = `[📎 ${file.name}](${file.webViewLink || "#"})`;
+    setInput((prev) => prev + (prev ? " " : "") + mention);
+    setShowDrivePanel(false);
+  }
 
   // Load sessions for current scope
   const loadSessions = useCallback(() => {
@@ -99,10 +203,11 @@ export default function Home() {
       const t = e.target as HTMLElement;
       if (showPersonality && !t.closest("[data-personality]")) setShowPersonality(false);
       if (showMemory && !t.closest("[data-memory]")) setShowMemory(false);
+      if (showDrivePanel && !t.closest("[data-drive]")) setShowDrivePanel(false);
     }
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
-  }, [showPersonality, showMemory]);
+  }, [showPersonality, showMemory, showDrivePanel]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -420,7 +525,119 @@ export default function Home() {
               {memories.length} memories
             </div>
           )}
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Google Drive / Extension Button */}
+          <div className="relative" data-drive>
+            {extensionInstalled ? (
+              <button
+                onClick={() => {
+                  if (!driveConnected) { connectDrive(); return; }
+                  setShowDrivePanel(!showDrivePanel);
+                  if (!showDrivePanel && driveFiles.length === 0) browseDriveFolder(null);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all hover:border-[var(--accent)]"
+                style={{ borderColor: driveConnected ? "var(--success)" : "var(--border)", background: driveConnected ? "rgba(34,197,94,0.08)" : "transparent" }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: driveConnected ? "var(--success)" : "var(--muted)" }}>
+                  <path d="M12 2L2 19.5h20L12 2z" /><path d="M7.5 12.5L12 2l4.5 10.5" /><path d="M2 19.5l4.5-7h11l4.5 7" />
+                </svg>
+                <span className="text-xs font-medium hidden sm:inline" style={{ color: driveConnected ? "var(--success)" : "var(--muted)" }}>
+                  {driveConnected ? "Drive" : "Connect Drive"}
+                </span>
+                {driveConnected && <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--success)" }} />}
+              </button>
+            ) : (
+              <a
+                href="https://github.com/alphacenturymarketing-oss/claude-os-extension"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all hover:border-[var(--accent)]"
+                style={{ borderColor: "var(--border)" }}
+                title="Install Claude OS Chrome Extension"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: "var(--muted)" }}>
+                  <circle cx="12" cy="12" r="10" /><path d="M12 8v4l3 3" />
+                </svg>
+                <span className="text-xs font-medium hidden sm:inline" style={{ color: "var(--muted)" }}>Extension</span>
+              </a>
+            )}
+          </div>
         </header>
+
+        {/* Google Drive Panel */}
+        {showDrivePanel && driveConnected && (
+          <div className="border-b" style={{ borderColor: "var(--border)", background: "var(--surface)" }} data-drive>
+            <div className="max-w-3xl mx-auto p-3">
+              {/* Drive header */}
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: "var(--success)" }}>
+                    <path d="M12 2L2 19.5h20L12 2z" /><path d="M7.5 12.5L12 2l4.5 10.5" /><path d="M2 19.5l4.5-7h11l4.5 7" />
+                  </svg>
+                  <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>Google Drive</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={disconnectDrive} className="text-xs px-2 py-1 rounded hover:bg-red-500/20" style={{ color: "var(--error)" }}>Disconnect</button>
+                  <button onClick={() => setShowDrivePanel(false)} className="p-1 rounded hover:bg-white/5" style={{ color: "var(--muted)" }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                  </button>
+                </div>
+              </div>
+
+              {/* Search */}
+              <div className="flex gap-2 mb-2">
+                <input
+                  value={driveSearch}
+                  onChange={(e) => setDriveSearch(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") searchDrive(driveSearch); }}
+                  placeholder="Search files..."
+                  className="flex-1 px-3 py-1.5 rounded-lg border text-xs focus:outline-none"
+                  style={{ background: "var(--background)", borderColor: "var(--border)", color: "var(--foreground)" }}
+                />
+                <button onClick={() => searchDrive(driveSearch)} className="px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{ background: "var(--accent)" }}>Search</button>
+              </div>
+
+              {/* Breadcrumb */}
+              <div className="flex items-center gap-1 mb-2 flex-wrap">
+                {drivePath.map((p, i) => (
+                  <span key={i} className="flex items-center gap-1">
+                    {i > 0 && <span className="text-xs" style={{ color: "var(--muted)" }}>/</span>}
+                    <button onClick={() => navigateDriveBreadcrumb(i)} className="text-xs hover:underline" style={{ color: i === drivePath.length - 1 ? "var(--accent)" : "var(--muted)" }}>{p.name}</button>
+                  </span>
+                ))}
+              </div>
+
+              {/* File list */}
+              <div className="max-h-48 overflow-y-auto rounded-lg border" style={{ borderColor: "var(--border)", background: "var(--background)" }}>
+                {driveLoading ? (
+                  <div className="p-4 text-center text-xs" style={{ color: "var(--muted)" }}>Loading...</div>
+                ) : (
+                  <>
+                    {driveFolders.map((folder) => (
+                      <button key={folder.id} onClick={() => browseDriveFolder(folder.id, folder.name)} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-all border-b" style={{ borderColor: "var(--border)" }}>
+                        <span className="text-sm">📁</span>
+                        <span className="text-xs flex-1 truncate" style={{ color: "var(--foreground)" }}>{folder.name}</span>
+                      </button>
+                    ))}
+                    {driveFiles.map((file) => (
+                      <button key={file.id} onClick={() => attachDriveFile(file)} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-all border-b" style={{ borderColor: "var(--border)" }}>
+                        <span className="text-sm">{file.mimeType?.includes("image") ? "🖼️" : file.mimeType?.includes("pdf") ? "📄" : file.mimeType?.includes("spreadsheet") || file.mimeType?.includes("excel") ? "📊" : "📎"}</span>
+                        <span className="text-xs flex-1 truncate" style={{ color: "var(--foreground)" }}>{file.name}</span>
+                        <span className="text-xs flex-shrink-0" style={{ color: "var(--muted)" }}>{file.size ? (parseInt(file.size) / 1024 > 1024 ? (parseInt(file.size) / 1048576).toFixed(1) + " MB" : (parseInt(file.size) / 1024).toFixed(0) + " KB") : ""}</span>
+                      </button>
+                    ))}
+                    {driveFolders.length === 0 && driveFiles.length === 0 && (
+                      <div className="p-4 text-center text-xs" style={{ color: "var(--muted)" }}>No files found</div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Chat Area */}
         <div className="flex-1 overflow-y-auto p-4">
@@ -481,6 +698,12 @@ export default function Home() {
           <div className="max-w-3xl mx-auto">
             <div className="flex gap-2 items-end rounded-xl border p-1.5" style={{ background: "var(--surface)", borderColor: isListening ? "var(--accent)" : "var(--border)", boxShadow: isListening ? "0 0 0 2px var(--accent-glow)" : "none" }}>
               <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKey} rows={1} placeholder={isListening ? "Listening..." : currentScope === "chat" ? "Message Claude..." : `Message ${scopeLabel}...`} className="flex-1 bg-transparent px-3 py-2 text-sm resize-none focus:outline-none" style={{ color: "var(--foreground)", maxHeight: 150 }} />
+              {/* Drive attach button */}
+              {extensionInstalled && driveConnected && (
+                <button onClick={() => { setShowDrivePanel(!showDrivePanel); if (!showDrivePanel && driveFiles.length === 0) browseDriveFolder(null); }} className="p-2.5 rounded-lg transition-all hover:bg-white/5" style={{ color: "var(--muted)" }} title="Attach from Google Drive">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 19.5h20L12 2z" /><path d="M7.5 12.5L12 2l4.5 10.5" /><path d="M2 19.5l4.5-7h11l4.5 7" /></svg>
+                </button>
+              )}
               <button onClick={toggleVoice} className={`p-2.5 rounded-lg transition-all ${isListening ? "animate-pulse" : "hover:bg-white/5"}`} style={{ color: isListening ? "var(--accent)" : "var(--muted)" }} title={isListening ? "Stop listening" : "Voice input"}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
               </button>
