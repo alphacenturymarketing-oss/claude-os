@@ -1,5 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
+import { useRouter } from "next/navigation";
 
 type Message = { role: "user" | "assistant"; content: string };
 type ResultItem = { id: string; label: string; status: "running" | "done" | "error"; detail?: string };
@@ -11,7 +13,6 @@ const SKILLS = [
   { id: "lead-followup", name: "Lead Follow-Up", description: "Generate lead follow-up sequences" },
   { id: "real-estate-marketing", name: "Marketing Materials", description: "Create property marketing materials" },
 ];
-
 const MODELS = [
   { id: "claude-haiku-4-5-20251001", name: "Haiku 4.5", desc: "Fast & cheap" },
   { id: "claude-sonnet-4-6", name: "Sonnet 4.6", desc: "Balanced" },
@@ -30,8 +31,17 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<ResultItem[]>([]);
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
+  const [user, setUser] = useState<{ email?: string } | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (!data.user) { router.push("/login"); }
+      else { setUser({ email: data.user.email }); setAuthLoading(false); }
+    });
+  }, [router]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
   useEffect(() => {
     function h(e: MouseEvent) { if (showPersonality && !(e.target as HTMLElement).closest("[data-personality]")) setShowPersonality(false); }
@@ -47,18 +57,15 @@ export default function Home() {
     setMessages(newMessages);
     setInput("");
     setLoading(true);
-
     let resultId: string | null = null;
     if (mode === "pa" && selectedSkill) {
       const skill = SKILLS.find((s) => s.id === selectedSkill);
       resultId = Date.now().toString();
       setResults((prev) => [{ id: resultId!, label: skill?.name || "Running...", status: "running" }, ...prev]);
     }
-
     try {
       const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: newMessages, model, personality, mode, skill: selectedSkill }),
       });
       const data = await res.json();
@@ -75,9 +82,11 @@ export default function Home() {
     }
     setLoading(false);
   }
+  function handleKey(e: React.KeyboardEvent) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }
+  async function handleLogout() { await supabase.auth.signOut(); router.push("/login"); }
 
-  function handleKey(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  if (authLoading) {
+    return (<div className="min-h-screen flex items-center justify-center" style={{ background: "var(--background)" }}><div className="text-sm" style={{ color: "var(--muted)" }}>Loading...</div></div>);
   }
 
   return (
@@ -112,6 +121,9 @@ export default function Home() {
           ) : (
             <button onClick={() => setEditingProject(true)} className="text-xs font-medium hover:opacity-80" style={{ color: "var(--foreground)" }}>{projectName}</button>
           )}
+          <div className="w-px h-6 ml-2" style={{ background: "var(--border)" }} />
+          <span className="text-xs" style={{ color: "var(--muted)" }}>{user?.email}</span>
+          <button onClick={handleLogout} className="px-2 py-1 rounded text-xs hover:opacity-80" style={{ color: "var(--muted)" }}>Logout</button>
         </div>
       </header>
       <div className="flex flex-1 overflow-hidden">
