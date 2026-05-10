@@ -38,8 +38,10 @@ export default function Home() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [showMemory, setShowMemory] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const router = useRouter();
 
   // Current scope: "chat" or skill id
@@ -209,6 +211,36 @@ export default function Home() {
 
   function handleKey(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  }
+
+  function toggleVoice() {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+    const SpeechRecognition = (window as unknown as { SpeechRecognition?: typeof window.SpeechRecognition; webkitSpeechRecognition?: typeof window.SpeechRecognition }).SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: typeof window.SpeechRecognition }).webkitSpeechRecognition;
+    if (!SpeechRecognition) { alert("Voice input is not supported in this browser."); return; }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognitionRef.current = recognition;
+
+    let finalTranscript = input;
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) { finalTranscript += (finalTranscript ? " " : "") + t; }
+        else { interim += t; }
+      }
+      setInput(finalTranscript + (interim ? " " + interim : ""));
+    };
+    recognition.onerror = () => { setIsListening(false); };
+    recognition.onend = () => { setIsListening(false); };
+    recognition.start();
+    setIsListening(true);
   }
 
   async function handleLogout() { await supabase.auth.signOut(); router.push("/login"); }
@@ -434,8 +466,11 @@ export default function Home() {
         {/* Input */}
         <div className="p-3 border-t" style={{ borderColor: "var(--border)" }}>
           <div className="max-w-3xl mx-auto">
-            <div className="flex gap-2 items-end rounded-xl border p-1.5" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
-              <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKey} rows={1} placeholder={currentScope === "chat" ? "Message Claude..." : `Message ${scopeLabel}...`} className="flex-1 bg-transparent px-3 py-2 text-sm resize-none focus:outline-none" style={{ color: "var(--foreground)", maxHeight: 150 }} />
+            <div className="flex gap-2 items-end rounded-xl border p-1.5" style={{ background: "var(--surface)", borderColor: isListening ? "var(--accent)" : "var(--border)", boxShadow: isListening ? "0 0 0 2px var(--accent-glow)" : "none" }}>
+              <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKey} rows={1} placeholder={isListening ? "Listening..." : currentScope === "chat" ? "Message Claude..." : `Message ${scopeLabel}...`} className="flex-1 bg-transparent px-3 py-2 text-sm resize-none focus:outline-none" style={{ color: "var(--foreground)", maxHeight: 150 }} />
+              <button onClick={toggleVoice} className={`p-2.5 rounded-lg transition-all ${isListening ? "animate-pulse" : "hover:bg-white/5"}`} style={{ color: isListening ? "var(--accent)" : "var(--muted)" }} title={isListening ? "Stop listening" : "Voice input"}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
+              </button>
               <button onClick={handleSend} disabled={loading || !input.trim()} className="p-2.5 rounded-lg text-white transition-all disabled:opacity-30" style={{ background: "var(--accent)" }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>
               </button>
