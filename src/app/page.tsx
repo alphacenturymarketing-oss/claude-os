@@ -379,6 +379,16 @@ export default function Home() {
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
           </button>
 
+          {/* Chat / PA Mode Toggle */}
+          <div className="flex items-center rounded-lg border p-0.5" style={{ borderColor: "var(--border)", background: "var(--background)" }}>
+            <button onClick={() => { if (messages.length > 0) saveSession(messages); setMode("chat"); setSelectedSkill(null); }} className="px-3 py-1.5 rounded-md text-xs font-medium transition-all" style={{ background: mode === "chat" ? "var(--accent)" : "transparent", color: mode === "chat" ? "#fff" : "var(--muted)" }}>
+              Chat
+            </button>
+            <button onClick={() => { setMode("pa"); if (!selectedSkill) setSelectedSkill(SKILLS[0].id); }} className="px-3 py-1.5 rounded-md text-xs font-medium transition-all" style={{ background: mode === "pa" ? "var(--accent)" : "transparent", color: mode === "pa" ? "#fff" : "var(--muted)" }}>
+              PA
+            </button>
+          </div>
+
           {/* Current scope indicator */}
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium" style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}>
             {currentScope === "chat" ? "💭" : SKILLS.find((s) => s.id === currentScope)?.icon}
