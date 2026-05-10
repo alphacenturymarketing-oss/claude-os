@@ -49,6 +49,7 @@ export default function Home() {
   const [drivePath, setDrivePath] = useState<{ id: string | null; name: string }[]>([{ id: null, name: "My Drive" }]);
   const [driveLoading, setDriveLoading] = useState(false);
   const [driveSearch, setDriveSearch] = useState("");
+  const [driveSection, setDriveSection] = useState<"my" | "shared">("my");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -126,6 +127,7 @@ export default function Home() {
 
   async function browseDriveFolder(folderId: string | null, folderName?: string) {
     setDriveLoading(true);
+    setDriveSection("my");
     if (folderName !== undefined) {
       if (folderId === null) {
         setDrivePath([{ id: null, name: "My Drive" }]);
@@ -136,6 +138,19 @@ export default function Home() {
     const [filesRes, foldersRes] = await Promise.all([
       extSend("DRIVE_LIST_FILES", { folderId }),
       extSend("DRIVE_LIST_FOLDERS", { parentId: folderId }),
+    ]);
+    setDriveFiles(filesRes?.files || []);
+    setDriveFolders(foldersRes?.folders || []);
+    setDriveLoading(false);
+  }
+
+  async function browseSharedDrive() {
+    setDriveLoading(true);
+    setDriveSection("shared");
+    setDrivePath([{ id: null, name: "Shared with me" }]);
+    const [filesRes, foldersRes] = await Promise.all([
+      extSend("DRIVE_LIST_SHARED"),
+      extSend("DRIVE_LIST_SHARED_FOLDERS"),
     ]);
     setDriveFiles(filesRes?.files || []);
     setDriveFolders(foldersRes?.folders || []);
@@ -616,11 +631,18 @@ export default function Home() {
               <div className="flex gap-2 rounded-lg border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--background)", height: 280 }}>
                 {/* Left: Folder tree */}
                 <div className="w-52 flex-shrink-0 border-r overflow-y-auto" style={{ borderColor: "var(--border)" }}>
-                  {/* Root */}
-                  <button onClick={() => { setDrivePath([{ id: null, name: "My Drive" }]); browseDriveFolder(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-all" style={{ background: drivePath.length === 1 ? "var(--accent-subtle)" : "transparent" }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: drivePath.length === 1 ? "var(--accent)" : "var(--muted)" }}><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-                    <span className="text-xs font-medium" style={{ color: drivePath.length === 1 ? "var(--accent)" : "var(--foreground)" }}>My Drive</span>
+                  {/* My Drive root */}
+                  <button onClick={() => { setDrivePath([{ id: null, name: "My Drive" }]); browseDriveFolder(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-all" style={{ background: driveSection === "my" && drivePath.length === 1 ? "var(--accent-subtle)" : "transparent" }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: driveSection === "my" && drivePath.length === 1 ? "var(--accent)" : "var(--muted)" }}><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                    <span className="text-xs font-medium" style={{ color: driveSection === "my" && drivePath.length === 1 ? "var(--accent)" : "var(--foreground)" }}>My Drive</span>
                   </button>
+                  {/* Shared with me */}
+                  <button onClick={() => browseSharedDrive()} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-all" style={{ background: driveSection === "shared" && drivePath.length === 1 ? "var(--accent-subtle)" : "transparent" }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: driveSection === "shared" && drivePath.length === 1 ? "var(--accent)" : "var(--muted)" }}><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                    <span className="text-xs font-medium" style={{ color: driveSection === "shared" && drivePath.length === 1 ? "var(--accent)" : "var(--foreground)" }}>Shared with me</span>
+                  </button>
+                  {/* Divider */}
+                  <div className="border-b my-1" style={{ borderColor: "var(--border)" }} />
                   {/* Folder list */}
                   {driveFolders.map((folder) => {
                     const isActive = drivePath[drivePath.length - 1]?.id === folder.id;
@@ -657,8 +679,14 @@ export default function Home() {
                         <span className="text-xs font-medium w-16 text-right" style={{ color: "var(--muted)" }}>Size</span>
                       </div>
                       {driveFiles.map((file) => (
-                        <button key={file.id} onClick={() => attachDriveFile(file)} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-all border-b" style={{ borderColor: "var(--border)" }}>
-                          <span className="text-sm flex-shrink-0">{file.mimeType?.includes("image") ? "🖼️" : file.mimeType?.includes("pdf") ? "📄" : file.mimeType?.includes("spreadsheet") || file.mimeType?.includes("excel") ? "📊" : file.mimeType?.includes("document") || file.mimeType?.includes("word") ? "📝" : file.mimeType?.includes("presentation") ? "📊" : "📎"}</span>
+                        <button key={file.id} onClick={() => {
+                          if (file.mimeType?.includes("folder")) {
+                            browseDriveFolder(file.id, file.name);
+                          } else {
+                            attachDriveFile(file);
+                          }
+                        }} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-all border-b" style={{ borderColor: "var(--border)" }}>
+                          <span className="text-sm flex-shrink-0">{file.mimeType?.includes("shortcut") ? "↗️" : file.mimeType?.includes("folder") ? "📁" : file.mimeType?.includes("image") ? "🖼️" : file.mimeType?.includes("pdf") ? "📄" : file.mimeType?.includes("spreadsheet") || file.mimeType?.includes("excel") ? "📊" : file.mimeType?.includes("document") || file.mimeType?.includes("word") ? "📝" : file.mimeType?.includes("presentation") ? "📊" : "📎"}</span>
                           <span className="text-xs flex-1 truncate" style={{ color: "var(--foreground)" }}>{file.name}</span>
                           <span className="text-xs w-16 text-right flex-shrink-0" style={{ color: "var(--muted)" }}>{file.size ? (parseInt(file.size) / 1024 > 1024 ? (parseInt(file.size) / 1048576).toFixed(1) + " MB" : (parseInt(file.size) / 1024).toFixed(0) + " KB") : "—"}</span>
                         </button>
